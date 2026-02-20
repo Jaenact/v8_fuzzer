@@ -94,3 +94,16 @@ class MutatorPool:
 
     def names(self) -> list[str]:
         return [m.name for m in self._mutators]
+
+
+    def stats(self) -> list[dict[str, float | int | str]]:
+        return [
+            {
+                "name": m.name,
+                "weight": m.weight,
+                "tries": m.tries,
+                "rewards": m.rewards,
+                "score": m.score,
+            }
+            for m in self._mutators
+        ]

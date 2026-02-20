@@ -59,6 +59,7 @@ python3 main.py \
 
 - 상세 분석: `docs/RESEARCH_REVIEW.md`
 - 운영 체크리스트: `docs/D8_RUNTIME_CHECKLIST.md`
+- 오픈소스 반영 노트: `docs/OPEN_SOURCE_INTEGRATION.md`
 
 ## 다음 단계 (권장)
 
@@ -66,3 +67,14 @@ python3 main.py \
 2. AST-level mutation + reducer 통합
 3. crash dedup 고도화(stack hash/signal 기반)
 4. distributed worker 모델로 병렬화
+
+
+## 오픈소스 시드 가져오기
+
+```bash
+python3 main.py \
+  --d8-path "$(which d8)" \
+  --import-seeds-dir /path/to/js_corpus \
+  --import-seeds-limit 2000 \
+  --iterations 10000
+```

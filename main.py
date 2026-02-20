@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import shutil
@@ -39,6 +40,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--workdir", default=".fuzz-work")
     parser.add_argument("--generate-ratio", type=float, default=0.25)
     parser.add_argument("--minimize-crashes", action="store_true")
+    parser.add_argument("--import-seeds-dir", help="Directory with *.js seeds to import before fuzzing")
+    parser.add_argument("--import-seeds-limit", type=int, default=1000)
     return parser.parse_args()
 
 
@@ -56,6 +59,10 @@ def main() -> None:
     diffs.mkdir(parents=True, exist_ok=True)
     tmp.mkdir(parents=True, exist_ok=True)
 
+    imported = 0
+    if args.import_seeds_dir:
+        imported = queue.import_directory(Path(args.import_seeds_dir), limit=args.import_seeds_limit)
+
     primary = D8Runner(resolve_binary(args.d8_path), timeout_sec=args.timeout, flags=parse_flags(args.primary_flags))
     secondary = None
     if args.secondary_d8_path:
@@ -71,6 +78,7 @@ def main() -> None:
     counters = {
         "iterations": 0,
         "corpus_add": 0,
+        "imported_seeds": imported,
         "crashes": 0,
         "unique_crashes": 0,
         "differentials": 0,
@@ -100,10 +108,12 @@ def main() -> None:
 
         delta = 0.0
         if result.crashed:
-            crash_fp = f"{result.returncode}:{hash(result.stderr[:400])}"
+            stable = hashlib.sha256(f"{result.returncode}:{result.stderr[:400]}".encode("utf-8", errors="ignore")).hexdigest()
+            crash_fp = f"{result.returncode}:{stable[:16]}"
             out = crashes / f"crash_{i:06d}_{result.returncode}.js"
             out.write_text(program, encoding="utf-8")
             if args.minimize_crashes:
+
                 def _repro(src: str) -> bool:
                     tmp_min = tmp / f"min_repro_{i:06d}.js"
                     tmp_min.write_text(src, encoding="utf-8")
@@ -124,9 +134,9 @@ def main() -> None:
                 counters["unique_crashes"] += 1
         elif (not result.timed_out) and (fp not in seen_fingerprints):
             seen_fingerprints.add(fp)
-            queue.add(program)
+            if queue.add(program):
+                counters["corpus_add"] += 1
             queue.mark_novel(seed_name)
-            counters["corpus_add"] += 1
             delta += 1.5
 
         if secondary:
@@ -163,13 +173,14 @@ def main() -> None:
 
         counters["iterations"] = i + 1
         if (i + 1) % 100 == 0:
-            stats.write_text(json.dumps(counters, indent=2), encoding="utf-8")
+            payload = {**counters, "mutators": mutators.stats()}
+            stats.write_text(json.dumps(payload, indent=2), encoding="utf-8")
             print(
                 f"[*] iter={i+1}, corpus={len(queue.seeds())}, uniq={len(seen_fingerprints)}, "
                 f"crash={counters['crashes']}, diff={counters['differentials']}"
             )
 
-    stats.write_text(json.dumps(counters, indent=2), encoding="utf-8")
+    stats.write_text(json.dumps({**counters, "mutators": mutators.stats()}, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 from dataclasses import asdict, dataclass
@@ -24,7 +25,9 @@ class Corpus:
         self.root.mkdir(parents=True, exist_ok=True)
         self.meta_path = self.root / "metadata.json"
         self._metadata: dict[str, SeedMeta] = {}
+        self._content_hashes: set[str] = set()
         self._load_metadata()
+        self._refresh_hashes()
 
     def _load_metadata(self) -> None:
         if not self.meta_path.exists():
@@ -37,6 +40,14 @@ class Corpus:
     def _save_metadata(self) -> None:
         payload = [asdict(v) for v in sorted(self._metadata.values(), key=lambda x: x.path)]
         self.meta_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _hash_program(self, program: str) -> str:
+        return hashlib.sha256(program.encode("utf-8", errors="ignore")).hexdigest()
+
+    def _refresh_hashes(self) -> None:
+        self._content_hashes.clear()
+        for seed in self.seeds():
+            self._content_hashes.add(self._hash_program(seed.read_text(encoding="utf-8")))
 
     def seeds(self) -> list[Path]:
         return sorted(self.root.glob("*.js"))
@@ -57,13 +68,27 @@ class Corpus:
         path = self.root / selected.path
         return path.read_text(encoding="utf-8"), selected.path
 
-    def add(self, program: str) -> Path:
+    def add(self, program: str) -> Path | None:
+        fingerprint = self._hash_program(program)
+        if fingerprint in self._content_hashes:
+            return None
         next_id = len(self.seeds())
         out = self.root / f"seed_{next_id:06d}.js"
         out.write_text(program, encoding="utf-8")
+        self._content_hashes.add(fingerprint)
         self._metadata[out.name] = SeedMeta(path=out.name)
         self._save_metadata()
         return out
+
+    def import_directory(self, source: Path, limit: int | None = None) -> int:
+        added = 0
+        for js in sorted(source.glob("*.js")):
+            if limit is not None and added >= limit:
+                break
+            content = js.read_text(encoding="utf-8", errors="ignore")
+            if self.add(content):
+                added += 1
+        return added
 
     def mark_novel(self, seed_name: str | None) -> None:
         if not seed_name:

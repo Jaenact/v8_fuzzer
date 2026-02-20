@@ -18,3 +18,16 @@ def test_corpus_choose_seed_returns_name(tmp_path) -> None:
     assert text is not None
     assert name is not None
     assert name.endswith('.js')
+
+
+def test_import_directory_dedups_content(tmp_path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "a.js").write_text("let x=1;\n", encoding="utf-8")
+    (src / "b.js").write_text("let x=1;\n", encoding="utf-8")
+    (src / "c.js").write_text("let y=2;\n", encoding="utf-8")
+
+    c = Corpus(tmp_path / "corpus")
+    added = c.import_directory(src)
+    assert added == 2
+    assert len(c.seeds()) == 2
