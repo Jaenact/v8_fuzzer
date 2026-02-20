@@ -3,12 +3,24 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import shutil
 from pathlib import Path
 
 from fuzzer.corpus import Corpus
 from fuzzer.generator import generate_program
 from fuzzer.mutators import MutatorPool, splice_programs
 from fuzzer.runner import D8Runner, differential_interesting
+from fuzzer.reducer import minimize_by_lines
+
+
+def resolve_binary(path_or_name: str) -> str:
+    resolved = shutil.which(path_or_name)
+    if resolved:
+        return resolved
+    p = Path(path_or_name)
+    if p.exists() and p.is_file():
+        return str(p)
+    raise FileNotFoundError(f"d8 binary not found: {path_or_name}")
 
 
 def parse_flags(raw: str) -> list[str]:
@@ -26,6 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--workdir", default=".fuzz-work")
     parser.add_argument("--generate-ratio", type=float, default=0.25)
+    parser.add_argument("--minimize-crashes", action="store_true")
     return parser.parse_args()
 
 
@@ -43,11 +56,11 @@ def main() -> None:
     diffs.mkdir(parents=True, exist_ok=True)
     tmp.mkdir(parents=True, exist_ok=True)
 
-    primary = D8Runner(args.d8_path, timeout_sec=args.timeout, flags=parse_flags(args.primary_flags))
+    primary = D8Runner(resolve_binary(args.d8_path), timeout_sec=args.timeout, flags=parse_flags(args.primary_flags))
     secondary = None
     if args.secondary_d8_path:
         secondary = D8Runner(
-            args.secondary_d8_path,
+            resolve_binary(args.secondary_d8_path),
             timeout_sec=args.timeout,
             flags=parse_flags(args.secondary_flags),
         )
@@ -90,6 +103,15 @@ def main() -> None:
             crash_fp = f"{result.returncode}:{hash(result.stderr[:400])}"
             out = crashes / f"crash_{i:06d}_{result.returncode}.js"
             out.write_text(program, encoding="utf-8")
+            if args.minimize_crashes:
+                def _repro(src: str) -> bool:
+                    tmp_min = tmp / f"min_repro_{i:06d}.js"
+                    tmp_min.write_text(src, encoding="utf-8")
+                    rr = primary.run(tmp_min)
+                    return rr.crashed
+
+                minimized = minimize_by_lines(program, _repro)
+                (crashes / f"crash_{i:06d}_{result.returncode}.min.js").write_text(minimized, encoding="utf-8")
             (crashes / f"crash_{i:06d}_{result.returncode}.log").write_text(
                 f"cmd={' '.join(result.cmdline)}\nreturncode={result.returncode}\n\nSTDERR\n{result.stderr}\n\nSTDOUT\n{result.stdout}\n",
                 encoding="utf-8",

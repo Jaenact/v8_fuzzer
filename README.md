@@ -1,7 +1,7 @@
 # V8 Fuzzer (Research-Driven)
 
 이 프로젝트는 **실제 취약점 제보 가능한 수준**을 목표로 V8 특화 퍼징을 구현합니다.
-MVP 수준 랜덤 퍼저를 넘어서, corpus energy scheduling / mutator 학습 / differential 실행까지 포함합니다.
+MVP 수준 랜덤 퍼저를 넘어서, corpus energy scheduling / mutator 학습 / differential 실행 / crash 최소화까지 포함합니다.
 
 ## 핵심 기능 (현재)
 
@@ -15,6 +15,8 @@ MVP 수준 랜덤 퍼저를 넘어서, corpus energy scheduling / mutator 학습
   - primary vs secondary d8 (혹은 서로 다른 flag 셋) 결과 비교
 - Crash/Diff artifact 저장
   - `.js` 재현 입력 + 로그/JSON 메타 저장
+- Crash 자동 최소화(옵션)
+  - `--minimize-crashes` 활성화 시 line-based delta reduction 수행
 
 ## 빠른 시작
 
@@ -37,12 +39,25 @@ python3 main.py \
   --iterations 10000
 ```
 
+### Crash 최소화 활성화
+
+```bash
+python3 main.py \
+  --d8-path /path/to/d8 \
+  --iterations 10000 \
+  --minimize-crashes
+```
+
 ## 출력 디렉터리
 
 - `.fuzz-work/corpus/` : seed + metadata
-- `.fuzz-work/crashes/` : crash 재현 입력/로그
+- `.fuzz-work/crashes/` : crash 재현 입력/로그/최소화 입력
 - `.fuzz-work/differentials/` : 실행 결과 불일치 샘플
 - `.fuzz-work/stats.json` : 누적 통계
+
+## 선행연구 기반 갭 분석
+
+- 상세 분석: `docs/RESEARCH_REVIEW.md`
 
 ## 다음 단계 (권장)
 
