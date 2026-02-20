@@ -34,11 +34,11 @@ class D8Runner:
         self.timeout_sec = timeout_sec
         self.flags = flags or []
 
-    def _cmd(self, program_path: Path) -> list[str]:
-        return [self.d8_path, "--allow-natives-syntax", "--expose-gc", *self.flags, str(program_path)]
+    def _cmd(self, program_path: Path, extra_flags: list[str] | None = None) -> list[str]:
+        return [self.d8_path, "--allow-natives-syntax", "--expose-gc", *self.flags, *(extra_flags or []), str(program_path)]
 
-    def run(self, program_path: Path) -> RunResult:
-        cmd = self._cmd(program_path)
+    def run(self, program_path: Path, extra_flags: list[str] | None = None) -> RunResult:
+        cmd = self._cmd(program_path, extra_flags=extra_flags)
         try:
             proc = subprocess.run(
                 cmd,
@@ -62,6 +62,18 @@ class D8Runner:
                 stderr=(exc.stderr or ""),
                 cmdline=cmd,
             )
+
+    def version(self) -> str:
+        proc = subprocess.run(
+            [self.d8_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=self.timeout_sec,
+            check=False,
+        )
+        out = (proc.stdout or "").strip()
+        err = (proc.stderr or "").strip()
+        return out or err or "unknown"
 
 
 def differential_interesting(primary: RunResult, secondary: RunResult) -> bool:

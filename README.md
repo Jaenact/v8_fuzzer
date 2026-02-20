@@ -60,6 +60,7 @@ python3 main.py \
 - 상세 분석: `docs/RESEARCH_REVIEW.md`
 - 운영 체크리스트: `docs/D8_RUNTIME_CHECKLIST.md`
 - 오픈소스 반영 노트: `docs/OPEN_SOURCE_INTEGRATION.md`
+- V8 파이프라인 타겟팅: `docs/V8_PIPELINE_TARGETING.md`
 
 ## 다음 단계 (권장)
 
@@ -77,4 +78,17 @@ python3 main.py \
   --import-seeds-dir /path/to/js_corpus \
   --import-seeds-limit 2000 \
   --iterations 10000
+```
+
+
+## Tier 프로파일 기반 실행
+
+```bash
+python3 main.py \
+  --d8-path /path/to/d8 \
+  --primary-profile sparkplug \
+  --secondary-d8-path /path/to/d8 \
+  --secondary-profile maglev \
+  --trace-turbo-on-crash \
+  --iterations 5000
 ```

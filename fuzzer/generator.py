@@ -18,6 +18,22 @@ for (let i = 0; i < __warmup_n__; i++) hot(o);
 hot(o);
 """,
     """
+function midtier(a) {
+  let v = a;
+  for (let i = 0; i < __loop_n__; i++) {
+    if ((i & 1) === 0) {
+      v = (v + i) | 0;
+    } else {
+      v = {x: v, y: i};
+      v = v.x | 0;
+    }
+  }
+  return v;
+}
+for (let i = 0; i < __warmup_n__; i++) midtier(i | 0);
+midtier(__call_n__);
+""",
+    """
 const buf = new ArrayBuffer(__arr_size__);
 const dv = new DataView(buf);
 for (let i = 0; i < __arr_size__; i += 4) {

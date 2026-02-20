@@ -10,6 +10,7 @@ from pathlib import Path
 from fuzzer.corpus import Corpus
 from fuzzer.generator import generate_program
 from fuzzer.mutators import MutatorPool, splice_programs
+from fuzzer.profiles import ENGINE_PROFILES, resolve_profile_flags
 from fuzzer.runner import D8Runner, differential_interesting
 from fuzzer.reducer import minimize_by_lines
 
@@ -34,15 +35,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--secondary-d8-path", help="Optional secondary d8 for differential fuzzing")
     parser.add_argument("--primary-flags", default="")
     parser.add_argument("--secondary-flags", default="")
+    parser.add_argument("--primary-profile", default="default", choices=sorted(ENGINE_PROFILES.keys()))
+    parser.add_argument("--secondary-profile", default="default", choices=sorted(ENGINE_PROFILES.keys()))
     parser.add_argument("--iterations", type=int, default=5000)
     parser.add_argument("--timeout", type=float, default=1.0)
     parser.add_argument("--seed", type=int, default=1337)
     parser.add_argument("--workdir", default=".fuzz-work")
     parser.add_argument("--generate-ratio", type=float, default=0.25)
     parser.add_argument("--minimize-crashes", action="store_true")
+    parser.add_argument("--trace-turbo-on-crash", action="store_true")
     parser.add_argument("--import-seeds-dir", help="Directory with *.js seeds to import before fuzzing")
     parser.add_argument("--import-seeds-limit", type=int, default=1000)
     return parser.parse_args()
+
+
+def combine_flags(profile: str, raw_flags: str) -> list[str]:
+    return [*resolve_profile_flags(profile), *parse_flags(raw_flags)]
 
 
 def main() -> None:
@@ -54,22 +62,27 @@ def main() -> None:
     crashes = workdir / "crashes"
     diffs = workdir / "differentials"
     tmp = workdir / "tmp"
+    traces = workdir / "traces"
     stats = workdir / "stats.json"
     crashes.mkdir(parents=True, exist_ok=True)
     diffs.mkdir(parents=True, exist_ok=True)
     tmp.mkdir(parents=True, exist_ok=True)
+    traces.mkdir(parents=True, exist_ok=True)
 
     imported = 0
     if args.import_seeds_dir:
         imported = queue.import_directory(Path(args.import_seeds_dir), limit=args.import_seeds_limit)
 
-    primary = D8Runner(resolve_binary(args.d8_path), timeout_sec=args.timeout, flags=parse_flags(args.primary_flags))
+    primary_flags = combine_flags(args.primary_profile, args.primary_flags)
+    secondary_flags = combine_flags(args.secondary_profile, args.secondary_flags)
+
+    primary = D8Runner(resolve_binary(args.d8_path), timeout_sec=args.timeout, flags=primary_flags)
     secondary = None
     if args.secondary_d8_path:
         secondary = D8Runner(
             resolve_binary(args.secondary_d8_path),
             timeout_sec=args.timeout,
-            flags=parse_flags(args.secondary_flags),
+            flags=secondary_flags,
         )
 
     mutators = MutatorPool()
@@ -82,7 +95,25 @@ def main() -> None:
         "crashes": 0,
         "unique_crashes": 0,
         "differentials": 0,
+        "trace_captures": 0,
     }
+
+    run_meta = {
+        "primary": {
+            "binary": primary.d8_path,
+            "version": primary.version(),
+            "profile": args.primary_profile,
+            "flags": primary.flags,
+        },
+        "secondary": None,
+    }
+    if secondary:
+        run_meta["secondary"] = {
+            "binary": secondary.d8_path,
+            "version": secondary.version(),
+            "profile": args.secondary_profile,
+            "flags": secondary.flags,
+        }
 
     for i in range(args.iterations):
         base, seed_name = queue.choose_seed(rng)
@@ -122,6 +153,20 @@ def main() -> None:
 
                 minimized = minimize_by_lines(program, _repro)
                 (crashes / f"crash_{i:06d}_{result.returncode}.min.js").write_text(minimized, encoding="utf-8")
+
+            if args.trace_turbo_on_crash:
+                trace_dir = traces / f"trace_{i:06d}"
+                trace_dir.mkdir(parents=True, exist_ok=True)
+                trace_res = primary.run(
+                    sample_path,
+                    extra_flags=["--trace-turbo", f"--trace-turbo-path={trace_dir}"]
+                )
+                (trace_dir / "trace.log").write_text(
+                    f"returncode={trace_res.returncode}\n\nSTDERR\n{trace_res.stderr}\n\nSTDOUT\n{trace_res.stdout}\n",
+                    encoding="utf-8",
+                )
+                counters["trace_captures"] += 1
+
             (crashes / f"crash_{i:06d}_{result.returncode}.log").write_text(
                 f"cmd={' '.join(result.cmdline)}\nreturncode={result.returncode}\n\nSTDERR\n{result.stderr}\n\nSTDOUT\n{result.stdout}\n",
                 encoding="utf-8",
@@ -173,14 +218,14 @@ def main() -> None:
 
         counters["iterations"] = i + 1
         if (i + 1) % 100 == 0:
-            payload = {**counters, "mutators": mutators.stats()}
+            payload = {**counters, "mutators": mutators.stats(), "run_meta": run_meta}
             stats.write_text(json.dumps(payload, indent=2), encoding="utf-8")
             print(
                 f"[*] iter={i+1}, corpus={len(queue.seeds())}, uniq={len(seen_fingerprints)}, "
                 f"crash={counters['crashes']}, diff={counters['differentials']}"
             )
 
-    stats.write_text(json.dumps({**counters, "mutators": mutators.stats()}, indent=2), encoding="utf-8")
+    stats.write_text(json.dumps({**counters, "mutators": mutators.stats(), "run_meta": run_meta}, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":
