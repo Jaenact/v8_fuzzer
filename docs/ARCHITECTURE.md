@@ -1,46 +1,41 @@
 # Architecture Notes for a Next-Gen V8 Fuzzer
 
-## 1) Design Principles
+## 1) Why this is beyond a toy fuzzer
 
-- **Engine-aware fuzzing**: 단순 JS 랜덤 생성이 아니라 V8의 최적화/JIT/GC 경계를 노린다.
-- **Feedback first**: 입력 품질은 관측 가능한 피드백(커버리지/행동 차이/크래시 신호)로 평가한다.
-- **Hybrid strategy**: grammar 생성 + mutation + differential 비교를 결합한다.
-- **Triage automation**: crash 재현성, 최소화, 중복 제거를 자동화한다.
+기존 단순 랜덤 생성은 deep optimization state에 도달하기 어렵습니다.
+이 구현은 아래 4축을 결합합니다.
 
-## 2) Core Loop (MVP)
+1. **Engine-aware generation**: JIT/GC/Proxy/DataView/Wasm 경계 노림
+2. **Adaptive mutation**: mutator별 reward를 누적해 좋은 전략을 더 자주 선택
+3. **Energy-based corpus scheduling**: novelty/crash 기여 seed에 더 많은 실행 기회 부여
+4. **Differential oracle**: 서로 다른 빌드/플래그의 의미적 불일치 포착
 
-1. Seed 선택
-2. 입력 생성/변이
-3. `d8` 실행 (timeout/return code/출력 수집)
-4. crash 여부 분류
-5. novelty 판단 후 corpus 업데이트
+## 2) Execution Pipeline
 
-## 3) V8-Focused Target Surfaces
+1. seed 선택 (metadata energy 기반)
+2. 생성/변이/스플라이스
+3. primary 실행
+4. crash 분류 + novelty 판정
+5. optional secondary 실행 (diff 판정)
+6. mutator reward 업데이트
+7. artifacts + stats 저장
 
-- Hidden class transition / inline cache stability
-- TypedArray + DataView boundary patterns
-- Proxy / Reflect / dynamic property reconfiguration
-- WebAssembly ↔ JS bridge (type confusion edge)
-- Promise/microtask ordering with GC pressure
-- Optimization directives (`%OptimizeFunctionOnNextCall` 등)
+## 3) Target Surfaces
 
-## 4) Near-Term Upgrades
+- Hidden class transition / IC invalidation
+- DataView/TypedArray index + endian corner cases
+- Proxy trap과 Reflect의 관찰 차이
+- Wasm Memory + JS object interaction
+- GC 타이밍과 optimized function 재호출 경계
 
-- Coverage bitmap 연동(sancov/edge log)
-- Multi-armed bandit 기반 mutator 선택
-- AST-level mutation + semantic-preserving transforms
-- Differential mode: stable vs experimental flags 비교
-- Auto reducer: crash input 최소화
+## 4) Dedup and triage
 
-## 5) Long-Term Novel Ideas
+- Crash: returncode + stderr prefix hash로 1차 dedup
+- Differential: 양측 stdout/stderr/returncode/timed_out 비교
+- 모든 interesting 입력은 재현 가능한 원본 JS로 보존
 
-- **Phase-targeted fuzzing**: Ignition → Sparkplug → TurboFan 전환 시점 유도
-- **Constraint-guided generation**: 특정 최적화 패턴을 만족하는 코드 합성
-- **State stitching**: 여러 실행 상태를 재조합해 rare state 도달
-- **Heap-shape orchestration**: 객체 레이아웃을 의도적으로 조형
+## 5) Upgrade hooks
 
-## 6) Operational Security / Disclosure
-
-- 취약점 저장소 암호화/접근 통제
-- 재현 스크립트 자동 생성
-- 벤더 정책에 맞춘 타임라인 관리
+- Coverage bitmap adapter (`result.coverage`) 슬롯 추가 예정
+- Phase-aware forcing (Ignition/Sparkplug/TurboFan) mutator 확장 가능
+- Reducer 연결 포인트: crash/diff artifact 후처리

@@ -12,14 +12,16 @@ class RunResult:
     timed_out: bool
     stdout: str
     stderr: str
+    cmdline: list[str]
 
     @property
     def crashed(self) -> bool:
-        return (not self.timed_out) and self.returncode != 0
+        return (not self.timed_out) and self.returncode not in (0,)
 
     @property
     def fingerprint(self) -> str:
         h = hashlib.sha256()
+        h.update(" ".join(self.cmdline).encode())
         h.update(str(self.returncode).encode())
         h.update(self.stdout.encode(errors="ignore"))
         h.update(self.stderr.encode(errors="ignore"))
@@ -27,12 +29,16 @@ class RunResult:
 
 
 class D8Runner:
-    def __init__(self, d8_path: str, timeout_sec: float = 1.0) -> None:
+    def __init__(self, d8_path: str, timeout_sec: float = 1.0, flags: list[str] | None = None) -> None:
         self.d8_path = d8_path
         self.timeout_sec = timeout_sec
+        self.flags = flags or []
+
+    def _cmd(self, program_path: Path) -> list[str]:
+        return [self.d8_path, "--allow-natives-syntax", "--expose-gc", *self.flags, str(program_path)]
 
     def run(self, program_path: Path) -> RunResult:
-        cmd = [self.d8_path, "--allow-natives-syntax", "--expose-gc", str(program_path)]
+        cmd = self._cmd(program_path)
         try:
             proc = subprocess.run(
                 cmd,
@@ -46,6 +52,7 @@ class D8Runner:
                 timed_out=False,
                 stdout=proc.stdout,
                 stderr=proc.stderr,
+                cmdline=cmd,
             )
         except subprocess.TimeoutExpired as exc:
             return RunResult(
@@ -53,4 +60,13 @@ class D8Runner:
                 timed_out=True,
                 stdout=(exc.stdout or ""),
                 stderr=(exc.stderr or ""),
+                cmdline=cmd,
             )
+
+
+def differential_interesting(primary: RunResult, secondary: RunResult) -> bool:
+    if primary.timed_out != secondary.timed_out:
+        return True
+    if primary.returncode != secondary.returncode:
+        return True
+    return (primary.stdout != secondary.stdout) or (primary.stderr != secondary.stderr)
