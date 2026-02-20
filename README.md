@@ -58,6 +58,7 @@ python3 main.py \
 ## 선행연구 기반 갭 분석
 
 - 상세 분석: `docs/RESEARCH_REVIEW.md`
+- 운영 체크리스트: `docs/D8_RUNTIME_CHECKLIST.md`
 
 ## 다음 단계 (권장)
 
